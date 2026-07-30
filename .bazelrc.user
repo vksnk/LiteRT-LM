@@ -1,0 +1,19 @@
+# Local developer overrides. This file is loaded by .bazelrc through
+# `try-import %workspace%/.bazelrc.user` and is not checked in.
+
+# Build against the local XNNPACK checkout instead of the revision pinned by
+# TensorFlow's workspace (@org_tensorflow//third_party/xnnpack). ynnpack lives
+# in the same repository, so `--define litert_enable_ynnpack=true` builds the
+# local ynnpack too.
+#
+# `common` (rather than `build`) so that query/fetch/run see the same
+# repository as build; otherwise those commands re-fetch the pinned archive
+# over the override.
+common --override_repository=XNNPACK=/home/vksnk/Projects/XNNPACK
+
+# Build against the local LiteRT checkout instead of the LITERT_REF archive in
+# WORKSPACE. NOTE: an override skips the archive's `patch_cmds`, so the local
+# checkout needs the same rewrite applied once (it is a no-op for standalone
+# litert builds, whose workspace is itself named `litert`):
+#   cd ~/Projects/litert && sed -i -e 's|"@//third_party/|"@litert//third_party/|g' third_party/*/*
+common --override_repository=litert=/home/vksnk/Projects/litert
