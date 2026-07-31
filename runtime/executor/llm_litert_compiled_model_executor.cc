@@ -1766,6 +1766,38 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
     compiled_model =
         std::make_unique<CompiledModel>(std::move(compiled_model_tmp));
   }
+  // Allocate the tensors of the signatures this executor will actually run,
+  // now rather than on their first use.
+  //
+  // `AllocateTensors` is what runs the delegates' `Prepare`, and a delegate can
+  // do substantial work there: the YNNPACK delegate compiles each partition it
+  // was given the first time that partition is prepared. Left to happen lazily,
+  // that lands inside the first `Prefill` and the first `Decode` and is charged
+  // to their latency, even though it is model-setup work. Doing it here keeps it
+  // in executor initialization.
+  //
+  // Only the signatures below are touched. A model also carries signatures this
+  // executor never invokes -- `verify` for speculative decoding is the
+  // expensive one -- and preparing those would trade one kind of waste for
+  // another. Errors are ignored: this is purely an optimization, and `Run`
+  // still allocates on demand for anything not prepared here.
+  {
+    std::vector<absl::string_view> signatures_to_prepare;
+    signatures_to_prepare.push_back(kDecodeSignatureRunner);
+    for (const auto& [unused_length, key] : prefill_runner_set) {
+      signatures_to_prepare.push_back(key);
+    }
+    for (absl::string_view key : signatures_to_prepare) {
+      auto signature_index = compiled_model->GetSignatureIndex(key);
+      if (!signature_index) continue;
+      // `update_allocation` is the documented way to force a signature's
+      // tensors to be allocated; the layouts themselves are not needed here.
+      auto layouts = compiled_model->GetOutputTensorLayouts(
+          *signature_index, /*update_allocation=*/true);
+      (void)layouts;
+    }
+  }
+
   LitertState::AllocationPolicy allocation_policy =
       LitertState::AllocationPolicy::kInplace;
   if (backend == Backend::GPU) {
